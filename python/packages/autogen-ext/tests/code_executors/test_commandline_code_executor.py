@@ -454,22 +454,25 @@ async def test_cleanup_temp_files_oserror(caplog: pytest.LogCaptureFixture) -> N
 
 
 @pytest.mark.asyncio
-async def test_sandbox_default_emits_deprecation_warning() -> None:
+async def test_sandbox_default_emits_user_warning() -> None:
     """Instantiating without an explicit sandbox posture should emit a
-    DeprecationWarning (not the legacy UserWarning) so warning-filter
-    pipelines that silence UserWarning still surface the security notice."""
-    with pytest.warns(DeprecationWarning, match=r"sandbox=False.*sandbox=True"):
+    UserWarning. UserWarning is chosen over DeprecationWarning because PEP
+    565's stock filters silence library-emitted DeprecationWarning — the
+    dominant deployment shape (executors built inside factory modules rather
+    than from ``__main__``) would never see it. UserWarning has no ignore
+    filter and surfaces from any module."""
+    with pytest.warns(UserWarning, match=r"sandbox=False.*sandbox=True"):
         LocalCommandLineCodeExecutor()
 
 
 @pytest.mark.asyncio
 async def test_sandbox_false_is_silent_opt_out() -> None:
     """sandbox=False is the explicit "I accept the risk" acknowledgement and
-    must not emit the DeprecationWarning."""
+    must not emit the sandbox UserWarning."""
     with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        # Must not raise: the DeprecationWarning-as-error filter would trip
-        # if we regressed and emitted the warning in the explicit path.
+        warnings.simplefilter("error", UserWarning)
+        # Must not raise: the UserWarning-as-error filter would trip if we
+        # regressed and emitted the warning in the explicit path.
         LocalCommandLineCodeExecutor(sandbox=False)
 
 
@@ -547,9 +550,9 @@ async def test_sandbox_roundtrips_through_config(tmp_path: Path) -> None:
     # dump_component should preserve the explicit posture.
     assert config.config["sandbox"] is True
 
-    # The load side must not emit the default DeprecationWarning — it would
-    # fire if sandbox weren't threaded through.
+    # The load side must not emit the default UserWarning — it would fire if
+    # sandbox weren't threaded through.
     with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
+        warnings.simplefilter("error", UserWarning)
         restored = LocalCommandLineCodeExecutor.load_component(config)
     assert restored._sandbox is True  # type: ignore[attr-defined]

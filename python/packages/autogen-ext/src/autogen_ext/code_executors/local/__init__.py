@@ -180,8 +180,9 @@ class LocalCommandLineCodeExecutor(CodeExecutor, Component[LocalCommandLineCodeE
             per-platform behavior below. The executor refuses to construct rather than silently degrade to a weaker posture.
 
             **When** ``sandbox`` **is** ``None`` (default, legacy):
-                The executor runs unsandboxed and emits a ``DeprecationWarning``. In a future release this parameter will become
-                required.
+                The executor runs unsandboxed and emits a ``UserWarning`` (chosen over ``DeprecationWarning`` so that library-level
+                emission is not silenced by the stock interpreter's ``ignore::DeprecationWarning`` filter from PEP 565). The same
+                event is also logged at ``WARNING`` level. In a future release this parameter will become required.
 
             **When** ``sandbox`` **is** ``False``:
                 The caller explicitly acknowledges unsandboxed execution. No warning is emitted; no isolation is applied.
@@ -286,16 +287,25 @@ $functions"""
         sandbox: Optional[bool] = None,
     ):
         # ── Sandbox posture notification ────────────────────────────────────
-        # The legacy UserWarning at construction was easily suppressed by
-        # production configurations (`python -W ignore`, warning filters in
-        # logging pipelines). Callers now choose one of three postures:
-        #   • sandbox=None  (default, legacy)  → DeprecationWarning + logger
+        # Callers choose one of three postures:
+        #   • sandbox=None  (default, legacy)  → UserWarning + logger.warning
         #   • sandbox=False                    → explicit opt-out, silent
         #   • sandbox=True                     → best-effort in-process
         #                                         hardening (env scrub +
         #                                         POSIX rlimits). NOT a
         #                                         substitute for the Docker
         #                                         executor.
+        #
+        # UserWarning is intentional over DeprecationWarning: PEP 565's stock
+        # filters silence library-emitted DeprecationWarning (the dominant
+        # deployment shape — executors built inside factory modules, not from
+        # __main__), and `__warningregistry__` per-(message,category,lineno)
+        # dedup turns it into a startup-only signal anyway. UserWarning has no
+        # ignore filter and surfaces from any module. The "deprecation" intent
+        # — "this parameter will become required" — is in the message, which
+        # is the actionable channel; the category is the visibility channel.
+        # `logger.warning(...)` runs in parallel for production log pipelines
+        # that filter the warnings module wholesale.
         if sandbox is None:
             warnings.warn(
                 "LocalCommandLineCodeExecutor is running WITHOUT sandboxing. "
@@ -305,7 +315,7 @@ $functions"""
                 "(https://docs.docker.com/get-docker/). "
                 "In a future release the `sandbox` parameter will become "
                 "required.",
-                DeprecationWarning,
+                UserWarning,
                 stacklevel=2,
             )
             logger.warning(
